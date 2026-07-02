@@ -6,6 +6,8 @@
 <title>Poolside — Chemistry Log &amp; Doser</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 <style>
   :root{
     --bg:#EBE7DB;
@@ -177,6 +179,32 @@
     padding:10px 14px;margin-bottom:18px;
   }
 
+  .sync-dot{
+    display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);
+    margin-right:6px;vertical-align:middle;
+  }
+  .sync-dot.pulse{ animation:dotPulse 1.2s ease 2; }
+  @keyframes dotPulse{
+    0%{ box-shadow:0 0 0 0 rgba(91,140,90,0.55); }
+    70%{ box-shadow:0 0 0 9px rgba(91,140,90,0); }
+    100%{ box-shadow:0 0 0 0 rgba(91,140,90,0); }
+  }
+
+  .toast{
+    position:fixed;bottom:22px;left:50%;
+    background:var(--pool-deep);color:#fff;padding:10px 18px;border-radius:100px;
+    font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+    box-shadow:0 8px 24px rgba(8,63,82,0.35);
+    animation:toastIn 0.3s ease forwards, toastOut 0.3s ease forwards 3.3s;
+    z-index:999;white-space:nowrap;
+  }
+  @keyframes toastIn{ from{opacity:0;transform:translate(-50%,12px);} to{opacity:1;transform:translate(-50%,0);} }
+  @keyframes toastOut{ from{opacity:1;} to{opacity:0;} }
+  @media (prefers-reduced-motion: reduce){
+    .sync-dot.pulse{ animation:none; }
+    .toast{ animation:none; opacity:1; transform:translate(-50%,0); }
+  }
+
   svg.chart{width:100%;height:170px;overflow:visible;}
   .chart-wrap{margin-top:10px;}
   .legend{display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;margin-bottom:6px;}
@@ -196,6 +224,7 @@
   </header>
 
   <div class="storage-note" id="storageNote"></div>
+  <div id="toastContainer"></div>
 
   <!-- Settings -->
   <section class="panel">
@@ -310,35 +339,144 @@ const TARGETS = {
   cya: {low:30,  high:50,  min:0, max:120, unit:'ppm', name:'Stabilizer (CYA)'}
 };
 
-/* ---------- storage abstraction (localStorage w/ in-memory fallback) ---------- */
-let memoryStore = [];
-let storageWorks = true;
-function loadHistory(){
-  try{
-    const raw = localStorage.getItem('poolside_history');
-    return raw ? JSON.parse(raw) : [];
-  }catch(e){
-    storageWorks = false;
-    return memoryStore;
-  }
-}
-function saveHistory(arr){
-  try{
-    localStorage.setItem('poolside_history', JSON.stringify(arr));
-  }catch(e){
-    storageWorks = false;
-    memoryStore = arr;
-  }
-}
-let history = loadHistory();
+/* ---------- shared sync (Firebase Realtime Database) ----------
+   To share this log between devices:
+   1. Go to https://console.firebase.google.com, sign in, create a project (Analytics not needed).
+   2. Left menu > Build > Realtime Database > Create Database > pick a location > start in test mode.
+   3. Click "Rules" tab and set to: {"rules": {".read": true, ".write": true}}  then Publish.
+      (Test mode alone expires after 30 days — this keeps it open permanently. Fine for a private family app.)
+   4. On the Project Overview page, click the "</>" (web) icon to register a web app, nickname it, skip hosting.
+   5. Copy the firebaseConfig object it gives you and paste its values below.
+   6. Re-upload this file to GitHub. Every device that opens the page now shares one log, live.
+------------------------------------------------------------------ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBzLVCInnL7Am1dNjtMuhhtxNHfay_zBxw",
+  authDomain: "reallygoodpoolchem.firebaseapp.com",
+  databaseURL: "https://reallygoodpoolchem-default-rtdb.firebaseio.com",
+  projectId: "reallygoodpoolchem"
+};
 
-const noteEl = document.getElementById('storageNote');
-function renderStorageNote(){
-  if(storageWorks){
-    noteEl.textContent = "Readings are saved in this browser (localStorage), so your log will still be here next time you open the page — once this file is hosted on your own site (e.g. GitHub Pages) rather than previewed in Claude.";
-  } else {
-    noteEl.textContent = "Heads up: this preview environment blocks browser storage, so logged readings will only last for this session. Once you host this file yourself (GitHub Pages, etc.), history will persist normally between visits.";
+let firebaseReady = false;
+let dbRef = null;
+if(firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY" && typeof firebase !== 'undefined'){
+  try{
+    firebase.initializeApp(firebaseConfig);
+    dbRef = firebase.database().ref('poolside_history');
+    firebaseReady = true;
+  }catch(e){
+    console.error('Firebase init failed, falling back to local-only storage.', e);
+    firebaseReady = false;
   }
+}
+
+let history = [];
+let localBackup = [];
+try{
+  const raw = localStorage.getItem('poolside_history');
+  localBackup = raw ? JSON.parse(raw) : [];
+}catch(e){ /* preview sandboxes may block this; that's fine */ }
+
+function saveLocalOnly(arr){
+  try{ localStorage.setItem('poolside_history', JSON.stringify(arr)); }catch(e){}
+}
+
+function hasVal(v){ return v !== null && v !== undefined && isFinite(v); }
+
+let myPendingIds = new Set();
+function addEntry(entry){
+  const clean = {};
+  Object.keys(entry).forEach(k=>{
+    const v = entry[k];
+    clean[k] = (typeof v === 'number' && isNaN(v)) ? null : v;
+  });
+  if(firebaseReady){
+    const ref = dbRef.push(clean);
+    if(ref && ref.key) myPendingIds.add(ref.key);
+  } else {
+    const withId = {id:'local-'+Date.now()+'-'+Math.random().toString(36).slice(2), ...clean};
+    history.unshift(withId);
+    saveLocalOnly(history);
+    renderHistory();
+  }
+}
+function removeEntry(id){
+  if(firebaseReady){
+    dbRef.child(id).remove();
+  } else {
+    history = history.filter(h=>h.id!==id);
+    saveLocalOnly(history);
+    renderHistory();
+  }
+}
+function migrateLocalToCloud(){
+  localBackup.forEach(h=>{
+    const {id, ...rest} = h;
+    addEntry(rest);
+  });
+  localBackup = [];
+  saveLocalOnly([]);
+  renderStorageNote();
+}
+
+let lastSyncedAt = null;
+function renderStorageNote(){
+  const noteEl = document.getElementById('storageNote');
+  if(firebaseReady){
+    const timeStr = lastSyncedAt ? lastSyncedAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+    noteEl.innerHTML = `<span class="sync-dot" id="syncDot"></span>Synced — last update ${timeStr}.`;
+    if(localBackup.length>0){
+      noteEl.innerHTML += ` <button class="btn ghost" id="migrateBtn" style="padding:4px 10px;font-size:12px;margin-left:8px;">Import ${localBackup.length} entry${localBackup.length>1?'ies':''} logged before sync was set up</button>`;
+      document.getElementById('migrateBtn').addEventListener('click', migrateLocalToCloud);
+    }
+  } else if(storageWorksLocally){
+    noteEl.textContent = "Not synced between devices yet — see the comment near the top of the script for the ~10 minute Firebase setup. Until then, readings only save to this browser.";
+  } else {
+    noteEl.textContent = "Heads up: this preview environment blocks browser storage, so logged readings will only last for this session. Once you host this file yourself, add Firebase sync (see script comment) or readings will save per-browser.";
+  }
+}
+let storageWorksLocally = true;
+try{ localStorage.setItem('poolside_test','1'); localStorage.removeItem('poolside_test'); }catch(e){ storageWorksLocally = false; }
+
+function showSyncPulse(count){
+  const dot = document.getElementById('syncDot');
+  if(dot){
+    dot.classList.add('pulse');
+    setTimeout(()=>{ if(dot) dot.classList.remove('pulse'); }, 2400);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = count===1 ? 'New entry synced from another device' : `${count} new entries synced from another device`;
+  document.getElementById('toastContainer').appendChild(toast);
+  setTimeout(()=> toast.remove(), 3800);
+}
+
+let firstSnapshotReceived = false;
+if(firebaseReady){
+  dbRef.on('value', snapshot=>{
+    const val = snapshot.val() || {};
+    const newHistory = Object.keys(val).map(id=>({id, ...val[id]})).sort((a,b)=> new Date(b.date)-new Date(a.date));
+
+    if(!firstSnapshotReceived){
+      firstSnapshotReceived = true;
+      history = newHistory;
+      lastSyncedAt = new Date();
+      renderStorageNote();
+      renderHistory();
+      return;
+    }
+
+    const prevIds = new Set(history.map(h=>h.id));
+    const incomingFromOther = newHistory.filter(h=> !prevIds.has(h.id) && !myPendingIds.has(h.id));
+    newHistory.forEach(h=>{ if(myPendingIds.has(h.id)) myPendingIds.delete(h.id); });
+
+    history = newHistory;
+    lastSyncedAt = new Date();
+    renderStorageNote();
+    renderHistory();
+    if(incomingFromOther.length>0) showSyncPulse(incomingFromOther.length);
+  });
+} else {
+  history = localBackup.map((h,i)=>({id:'local-'+i, ...h}));
 }
 
 /* ---------- chip toggles (events + water level) ---------- */
@@ -543,30 +681,25 @@ function clearEventInputs(){
 function logReading(){
   const r = calculate();
   const entry = { date: new Date().toISOString(), ...r };
-  history.unshift(entry);
-  saveHistory(history);
-  renderStorageNote();
-  renderHistory();
+  addEntry(entry);
   clearEventInputs();
 }
 
 function logEventOnly(){
   const psi = parseFloat(document.getElementById('psi').value);
   const temp = parseFloat(document.getElementById('temp').value);
-  const entry = {
-    date: new Date().toISOString(),
-    fc: NaN, cc: NaN, ph: NaN, ta: NaN, ch: NaN, cya: NaN,
-    psi, temp, level: waterLevel, tags: Array.from(activeTags),
-    notes: document.getElementById('notes').value.trim()
-  };
-  if(entry.tags.length===0 && !entry.notes && !isFinite(psi)){
+  const tags = Array.from(activeTags);
+  const notes = document.getElementById('notes').value.trim();
+  if(tags.length===0 && !notes && !isFinite(psi)){
     alert('Pick at least one event, add a note, or enter a filter pressure before logging.');
     return;
   }
-  history.unshift(entry);
-  saveHistory(history);
-  renderStorageNote();
-  renderHistory();
+  const entry = {
+    date: new Date().toISOString(),
+    fc: NaN, cc: NaN, ph: NaN, ta: NaN, ch: NaN, cya: NaN,
+    psi, temp, level: waterLevel, tags, notes
+  };
+  addEntry(entry);
   clearEventInputs();
 }
 
@@ -581,7 +714,7 @@ function renderHistory(){
   chartWrap.style.display = history.length>1 ? 'block' : 'none';
 
   let rows = '';
-  history.forEach((h, i)=>{
+  history.forEach((h)=>{
     const d = new Date(h.date);
     const tagBits = [];
     if(h.level && h.level!=='Normal') tagBits.push(h.level+' water');
@@ -590,16 +723,16 @@ function renderHistory(){
     const notesHtml = h.notes ? `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:var(--ink-soft);margin-top:3px;">${h.notes}</div>` : '';
     rows += `<tr>
       <td>${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
-      <td>${isFinite(h.fc)?fmt(h.fc):'—'}</td>
-      <td>${isFinite(h.cc)?fmt(h.cc):'—'}</td>
-      <td>${isFinite(h.ph)?fmt(h.ph):'—'}</td>
-      <td>${isFinite(h.ta)?fmt(h.ta,0):'—'}</td>
-      <td>${isFinite(h.ch)?fmt(h.ch,0):'—'}</td>
-      <td>${isFinite(h.cya)?fmt(h.cya,0):'—'}</td>
-      <td>${isFinite(h.psi)?fmt(h.psi,0):'—'}</td>
-      <td>${isFinite(h.temp)?fmt(h.temp,0)+'°':'—'}</td>
+      <td>${hasVal(h.fc)?fmt(h.fc):'—'}</td>
+      <td>${hasVal(h.cc)?fmt(h.cc):'—'}</td>
+      <td>${hasVal(h.ph)?fmt(h.ph):'—'}</td>
+      <td>${hasVal(h.ta)?fmt(h.ta,0):'—'}</td>
+      <td>${hasVal(h.ch)?fmt(h.ch,0):'—'}</td>
+      <td>${hasVal(h.cya)?fmt(h.cya,0):'—'}</td>
+      <td>${hasVal(h.psi)?fmt(h.psi,0):'—'}</td>
+      <td>${hasVal(h.temp)?fmt(h.temp,0)+'°':'—'}</td>
       <td style="white-space:normal;min-width:140px;">${tagHtml}${notesHtml}</td>
-      <td class="del" data-i="${i}">remove</td>
+      <td class="del" data-id="${h.id}">remove</td>
     </tr>`;
   });
   wrap.innerHTML = `<table>
@@ -608,10 +741,7 @@ function renderHistory(){
   </table>`;
   wrap.querySelectorAll('.del').forEach(el=>{
     el.addEventListener('click', ()=>{
-      const i = parseInt(el.getAttribute('data-i'));
-      history.splice(i,1);
-      saveHistory(history);
-      renderHistory();
+      removeEntry(el.getAttribute('data-id'));
     });
   });
 
@@ -624,8 +754,8 @@ function drawChart(){
   if(data.length<2){ svg.innerHTML=''; return; }
   const W=600,H=170,padL=28,padR=10,padT=10,padB=20;
   const xs = data.map((d,i)=> padL + (i/(data.length-1))*(W-padL-padR));
-  const fcVals = data.map(d=> isFinite(d.fc)? d.fc : null);
-  const phVals = data.map(d=> isFinite(d.ph)? d.ph*10 : null); // scale ph *10 to share axis roughly
+  const fcVals = data.map(d=> hasVal(d.fc)? d.fc : null);
+  const phVals = data.map(d=> hasVal(d.ph)? d.ph*10 : null); // scale ph *10 to share axis roughly
 
   const allVals = [...fcVals, ...phVals].filter(v=>v!==null);
   const maxV = Math.max(10, ...allVals);

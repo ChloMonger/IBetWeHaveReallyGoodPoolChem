@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poolside — Chemistry Log &amp; Doser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EBE7DB;
+    --deck:#DCD5C2;
+    --card:#FBFAF6;
+    --ink:#10242E;
+    --ink-soft:#4C5E66;
+    --pool:#0B5D77;
+    --pool-deep:#083F52;
+    --pool-light:#8FC1CC;
+    --good:#5B8C5A;
+    --good-bg:#E4EDE1;
+    --low:#E8B93F;
+    --low-bg:#FBF1D9;
+    --high:#C94C3B;
+    --high-bg:#F7E3DF;
+    --line:#D8D2C1;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans',sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px;}
+
+  header.top{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:18px;margin-bottom:28px;flex-wrap:wrap;gap:12px;
+  }
+  header.top .brand{display:flex;flex-direction:column;gap:2px;}
+  header.top h1{
+    font-family:'Space Grotesk',sans-serif;font-weight:700;
+    font-size:clamp(28px,4vw,38px);margin:0;letter-spacing:-0.01em;
+  }
+  header.top .tag{
+    font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);
+    letter-spacing:0.03em;text-transform:uppercase;
+  }
+  header.top .datechip{
+    font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--pool-deep);
+    background:var(--pool-light);padding:6px 12px;border-radius:100px;
+  }
+
+  .panel{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 24px;margin-bottom:22px;
+  }
+  .panel h2{
+    font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 4px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel h2 .num{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--pool);
+    border:1px solid var(--pool);border-radius:5px;padding:1px 6px;
+  }
+  .panel .sub{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
+
+  .grid-settings{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{font-size:12.5px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.02em;}
+  .field input, .field select{
+    font-family:'IBM Plex Mono',monospace;font-size:16px;
+    padding:11px 10px;border:1.5px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);
+    width:100%;
+  }
+  .field input:focus, .field select:focus{outline:2px solid var(--pool);outline-offset:1px;border-color:var(--pool);}
+  .field .hint{font-size:11.5px;color:var(--ink-soft);}
+
+  .grid-readings{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+
+  /* quick-tag chips for events */
+  .chiprow{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+  .chip{
+    font-family:'IBM Plex Mono',monospace;font-size:13px;
+    padding:9px 14px;border-radius:100px;border:1.5px solid var(--line);background:#fff;color:var(--ink-soft);
+    cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;
+  }
+  .chip.active{background:var(--pool);border-color:var(--pool);color:#fff;}
+  .chip.level.active{background:var(--pool-deep);border-color:var(--pool-deep);}
+
+  .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tag-list{display:flex;flex-wrap:wrap;gap:4px;}
+  .tag-list .tagchip{
+    font-size:10.5px;background:var(--deck);color:var(--ink-soft);padding:2px 7px;border-radius:100px;white-space:nowrap;
+  }
+
+  @media (max-width:640px){
+    .wrap{padding:18px 14px 70px;}
+    .panel{padding:18px 16px;}
+    .grid-readings{grid-template-columns:repeat(2,1fr);}
+    .grid-settings{grid-template-columns:1fr;}
+    .btn-row{flex-direction:column;}
+    .btn-row .btn{width:100%;text-align:center;padding:14px 22px;}
+    header.top{align-items:flex-start;}
+    table{font-size:12.5px;}
+    td,th{padding:7px 6px;white-space:nowrap;}
+  }
+
+  .btn{
+    font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14.5px;
+    background:var(--pool);color:#fff;border:none;border-radius:8px;
+    padding:12px 22px;cursor:pointer;letter-spacing:0.01em;
+  }
+  .btn:hover{background:var(--pool-deep);}
+  .btn.ghost{background:transparent;color:var(--pool-deep);border:1.5px solid var(--pool);}
+  .btn.ghost:hover{background:var(--pool-light);}
+  .btn-row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+
+  /* Result cards */
+  .results{display:flex;flex-direction:column;gap:12px;}
+  .rcard{
+    border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--card);
+  }
+  .rcard .rtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .rcard .rname{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15.5px;}
+  .rcard .rval{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--ink-soft);}
+  .pill{
+    font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:3px 9px;border-radius:100px;font-weight:600;
+    text-transform:uppercase;letter-spacing:0.03em;
+  }
+  .pill.good{background:var(--good-bg);color:var(--good);}
+  .pill.low{background:var(--low-bg);color:#8a6c1c;}
+  .pill.high{background:var(--high-bg);color:var(--high);}
+
+  /* swatch gauge, signature element */
+  .gauge{position:relative;height:16px;border-radius:6px;margin:12px 0 6px;overflow:visible;
+    background:linear-gradient(to right, var(--low-bg) 0 33%, var(--good-bg) 33% 67%, var(--high-bg) 67% 100%);
+    border:1px solid var(--line);
+  }
+  .gauge .marker{
+    position:absolute;top:-6px;width:2px;height:28px;background:var(--ink);
+  }
+  .gauge .marker::after{
+    content:'';position:absolute;top:-6px;left:50%;transform:translateX(-50%);
+    width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+    border-bottom:6px solid var(--ink);
+  }
+  .gauge-labels{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft);}
+
+  .rcard .dose{
+    margin-top:10px;font-size:14px;padding-top:10px;border-top:1px dashed var(--line);
+  }
+  .rcard .dose strong{color:var(--pool-deep);}
+
+  .order-note{
+    font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);
+    background:var(--deck);border-radius:8px;padding:10px 14px;margin-top:6px;
+  }
+
+  /* history */
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{
+    text-align:left;font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;
+    color:var(--ink-soft);padding:6px 8px;border-bottom:1.5px solid var(--ink);letter-spacing:0.02em;
+  }
+  td{padding:7px 8px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;}
+  tr:hover td{background:var(--deck);}
+  .empty{color:var(--ink-soft);font-size:13.5px;padding:14px 0;}
+  .del{cursor:pointer;color:var(--high);font-size:12px;}
+
+  .storage-note{
+    font-size:12px;color:var(--ink-soft);background:var(--deck);border-radius:8px;
+    padding:10px 14px;margin-bottom:18px;
+  }
+
+  svg.chart{width:100%;height:170px;overflow:visible;}
+  .chart-wrap{margin-top:10px;}
+  .legend{display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;margin-bottom:6px;}
+  .legend span{display:flex;align-items:center;gap:5px;}
+  .legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Poolside</h1>
+      <div class="tag">Liquid chlorine dosing &amp; water log</div>
+    </div>
+    <div class="datechip" id="todayChip"></div>
+  </header>
+
+  <div class="storage-note" id="storageNote"></div>
+
+  <!-- Settings -->
+  <section class="panel">
+    <h2><span class="num">01</span> Pool &amp; chemical setup</h2>
+    <p class="sub">Set this once — it's used for every dose calculation below.</p>
+    <div class="grid-settings">
+      <div class="field">
+        <label for="gallons">Pool volume (gallons)</label>
+        <input type="number" id="gallons" value="18000" min="500" step="100">
+      </div>
+      <div class="field">
+        <label for="chlorinePct">Liquid chlorine strength (%)</label>
+        <input type="number" id="chlorinePct" value="10" min="1" max="15" step="0.5">
+        <span class="hint">"Pool store" liquid chlorine is usually 10–12.5%. Plain household bleach is 6–8%. Check the jug label.</span>
+      </div>
+      <div class="field">
+        <label for="psiBaseline">Filter PSI — clean/baseline</label>
+        <input type="number" id="psiBaseline" value="10" min="0" step="1">
+        <span class="hint">Reading right after you backwash/rinse a clean filter.</span>
+      </div>
+      <div class="field">
+        <label for="psiHigh">Filter PSI — time to clean</label>
+        <input type="number" id="psiHigh" value="18" min="0" step="1">
+        <span class="hint">Most manufacturers say backwash/clean at about +8–10 PSI over baseline.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Readings -->
+  <section class="panel">
+    <h2><span class="num">02</span> Today's test results</h2>
+    <p class="sub">From your Taylor kit — enter Free Chlorine and Total Chlorine separately; Combined is calculated for you.</p>
+    <div class="grid-readings">
+      <div class="field"><label for="fc">Free Cl (ppm)</label><input type="number" id="fc" step="0.1" placeholder="e.g. 2.0"></div>
+      <div class="field"><label for="tc">Total Cl (ppm)</label><input type="number" id="tc" step="0.1" placeholder="e.g. 2.0"></div>
+      <div class="field"><label for="ph">pH</label><input type="number" id="ph" step="0.1" placeholder="e.g. 7.5"></div>
+      <div class="field"><label for="ta">Alkalinity (ppm)</label><input type="number" id="ta" step="1" placeholder="e.g. 90"></div>
+      <div class="field"><label for="ch">Calcium Hardness (ppm)</label><input type="number" id="ch" step="1" placeholder="e.g. 300"></div>
+      <div class="field"><label for="cya">Stabilizer / CYA (ppm)</label><input type="number" id="cya" step="1" placeholder="e.g. 40"></div>
+      <div class="field"><label for="psi">Filter pressure (PSI)</label><input type="number" id="psi" step="1" placeholder="e.g. 14"></div>
+      <div class="field"><label for="temp">Water temp (°F, optional)</label><input type="number" id="temp" step="1" placeholder="e.g. 82"></div>
+    </div>
+
+    <div class="field" style="margin-top:18px;">
+      <label>Water level</label>
+      <div class="chiprow" id="levelChips">
+        <span class="chip level" data-level="Low">Low</span>
+        <span class="chip level active" data-level="Normal">Normal</span>
+        <span class="chip level" data-level="High">High</span>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:18px;">
+      <label>Events today (tap any that apply)</label>
+      <div class="chiprow" id="eventChips">
+        <span class="chip" data-tag="Swam">Swam</span>
+        <span class="chip" data-tag="Rained">Rained</span>
+        <span class="chip" data-tag="Heavy rain">Heavy rain</span>
+        <span class="chip" data-tag="Guests / heavy use">Guests / heavy use</span>
+        <span class="chip" data-tag="Backwashed filter">Backwashed filter</span>
+        <span class="chip" data-tag="Cleaned filter">Cleaned filter</span>
+        <span class="chip" data-tag="Topped off water">Topped off water</span>
+        <span class="chip" data-tag="Cover on">Cover on</span>
+        <span class="chip" data-tag="Added chemicals manually">Added chemicals manually</span>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:14px;">
+      <label for="notes">Notes (optional)</label>
+      <input type="text" id="notes" placeholder="Anything else worth remembering...">
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" id="calcBtn">Calculate doses</button>
+      <button class="btn ghost" id="logBtn">Calculate &amp; log this reading</button>
+      <button class="btn ghost" id="eventOnlyBtn">Just log today's events</button>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section class="panel" id="resultsPanel" style="display:none;">
+    <h2><span class="num">03</span> What to add</h2>
+    <p class="sub">Dosed for your pool size right now. Add chemicals one at a time in the order below, circulate, and retest before adding the next — pool chemistry interacts, so big simultaneous doses can overshoot.</p>
+    <div class="results" id="results"></div>
+    <div class="order-note" id="orderNote"></div>
+  </section>
+
+  <!-- History -->
+  <section class="panel">
+    <h2><span class="num">04</span> History</h2>
+    <p class="sub">Every logged reading, most recent first.</p>
+    <div class="chart-wrap" id="chartWrap" style="display:none;">
+      <div class="legend">
+        <span><i style="background:var(--pool)"></i> Free Chlorine (ppm)</span>
+        <span><i style="background:var(--high)"></i> pH ×10</span>
+      </div>
+      <svg class="chart" id="chart" viewBox="0 0 600 170" preserveAspectRatio="none"></svg>
+    </div>
+    <div id="historyTableWrap" class="table-scroll"></div>
+  </section>
+
+</div>
+
+<script>
+/* ---------- constants & targets ---------- */
+const TARGETS = {
+  fc:  {low:3,   high:5,   min:0, max:10,  unit:'ppm', name:'Free Chlorine'},
+  cc:  {low:0,   high:0.5, min:0, max:3,   unit:'ppm', name:'Combined Chlorine'},
+  ph:  {low:7.4, high:7.6, min:6.8, max:8.2, unit:'',  name:'pH'},
+  ta:  {low:80,  high:120, min:0, max:240, unit:'ppm', name:'Total Alkalinity'},
+  ch:  {low:250, high:350, min:0, max:600, unit:'ppm', name:'Calcium Hardness'},
+  cya: {low:30,  high:50,  min:0, max:120, unit:'ppm', name:'Stabilizer (CYA)'}
+};
+
+/* ---------- storage abstraction (localStorage w/ in-memory fallback) ---------- */
+let memoryStore = [];
+let storageWorks = true;
+function loadHistory(){
+  try{
+    const raw = localStorage.getItem('poolside_history');
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){
+    storageWorks = false;
+    return memoryStore;
+  }
+}
+function saveHistory(arr){
+  try{
+    localStorage.setItem('poolside_history', JSON.stringify(arr));
+  }catch(e){
+    storageWorks = false;
+    memoryStore = arr;
+  }
+}
+let history = loadHistory();
+
+const noteEl = document.getElementById('storageNote');
+function renderStorageNote(){
+  if(storageWorks){
+    noteEl.textContent = "Readings are saved in this browser (localStorage), so your log will still be here next time you open the page — once this file is hosted on your own site (e.g. GitHub Pages) rather than previewed in Claude.";
+  } else {
+    noteEl.textContent = "Heads up: this preview environment blocks browser storage, so logged readings will only last for this session. Once you host this file yourself (GitHub Pages, etc.), history will persist normally between visits.";
+  }
+}
+
+/* ---------- chip toggles (events + water level) ---------- */
+const activeTags = new Set();
+document.getElementById('eventChips').addEventListener('click', (e)=>{
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  chip.classList.toggle('active');
+  const tag = chip.getAttribute('data-tag');
+  if(chip.classList.contains('active')) activeTags.add(tag); else activeTags.delete(tag);
+});
+let waterLevel = 'Normal';
+document.getElementById('levelChips').addEventListener('click', (e)=>{
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  document.querySelectorAll('#levelChips .chip').forEach(c=>c.classList.remove('active'));
+  chip.classList.add('active');
+  waterLevel = chip.getAttribute('data-level');
+});
+
+/* ---------- helpers ---------- */
+function zoneOf(key, val){
+  const t = TARGETS[key];
+  if(val < t.low) return 'low';
+  if(val > t.high) return 'high';
+  return 'good';
+}
+function fmt(n, d=1){ return Number(n).toFixed(d).replace(/\.0+$/,'').replace(/(\.\d*[1-9])0+$/,'$1'); }
+
+function ounceString(oz){
+  if(oz <= 0) return null;
+  if(oz >= 128) return `${fmt(oz/128,2)} gal`;
+  if(oz >= 32) return `${fmt(oz/32,2)} qt (${fmt(oz,1)} oz)`;
+  if(oz >= 8) return `${fmt(oz/8,2)} cups (${fmt(oz,1)} oz)`;
+  return `${fmt(oz,1)} fl oz`;
+}
+
+function gauge(key, val){
+  const t = TARGETS[key];
+  const pct = Math.max(0, Math.min(100, ((val - t.min)/(t.max - t.min))*100));
+  return `<div class="gauge"><div class="marker" style="left:${pct}%"></div></div>
+    <div class="gauge-labels"><span>${t.min}</span><span>target ${t.low}–${t.high}${t.unit?' '+t.unit:''}</span><span>${t.max}</span></div>`;
+}
+
+function psiZone(val, baseline, high){
+  if(val < baseline - 2) return 'low';
+  if(val >= high) return 'high';
+  return 'good';
+}
+function psiGauge(val, baseline, high){
+  const max = Math.max(high*1.4, val*1.1, baseline+15);
+  const pct = Math.max(0, Math.min(100, (val/max)*100));
+  return `<div class="gauge" style="background:linear-gradient(to right, var(--low-bg) 0 ${(baseline-2)/max*100}%, var(--good-bg) ${(baseline-2)/max*100}% ${high/max*100}%, var(--high-bg) ${high/max*100}% 100%)">
+      <div class="marker" style="left:${pct}%"></div></div>
+    <div class="gauge-labels"><span>0</span><span>baseline ${baseline} · clean at ${high}</span><span>${fmt(max,0)}</span></div>`;
+}
+
+/* ---------- dose math ---------- */
+function doseFC(gallons, pct, current, target){
+  // ounces of liquid chlorine = ppm_rise * gallons / (78.13 * concentration%)
+  const rise = target - current;
+  if(rise <= 0) return null;
+  const oz = (rise * gallons) / (78.13 * pct);
+  return `Add <strong>${ounceString(oz)}</strong> of ${pct}% liquid chlorine to raise Free Chlorine from ${fmt(current)} to ${fmt(target)} ppm.`;
+}
+function doseTA(gallons, current, target){
+  const rise = target - current;
+  if(rise <= 0) return null;
+  const lb = (rise/10) * 1.5 * (gallons/10000);
+  return `Add <strong>${fmt(lb,2)} lb</strong> baking soda (sodium bicarbonate) to raise Alkalinity from ${fmt(current,0)} to ${fmt(target,0)} ppm.`;
+}
+function dosePH(gallons, current, target){
+  const rise = target - current;
+  if(Math.abs(rise) < 0.05) return null;
+  if(rise > 0){
+    const oz = (rise/0.2) * 6 * (gallons/10000);
+    return `Add <strong>${ounceString(oz)}</strong> soda ash to raise pH from ${fmt(current)} to ${fmt(target)}. (This will also nudge Alkalinity up slightly — retest after.)`;
+  } else {
+    const oz = (Math.abs(rise)/0.2) * 16 * (gallons/10000);
+    return `Add <strong>${ounceString(oz)}</strong> muriatic acid (31.45%) to lower pH from ${fmt(current)} to ${fmt(target)}. (This will also lower Alkalinity — retest after.)`;
+  }
+}
+function doseCH(gallons, current, target){
+  const rise = target - current;
+  if(rise <= 0) return null;
+  const lb = (rise/10) * 1.25 * (gallons/10000);
+  return `Add <strong>${fmt(lb,2)} lb</strong> calcium chloride to raise Calcium Hardness from ${fmt(current,0)} to ${fmt(target,0)} ppm.`;
+}
+function doseCYA(gallons, current, target){
+  const rise = target - current;
+  if(rise <= 0) return null;
+  const oz = (rise/10) * 13 * (gallons/10000);
+  return `Add <strong>${ounceString(oz)}</strong> of stabilizer (cyanuric acid) to raise CYA from ${fmt(current,0)} to ${fmt(target,0)} ppm. CYA dissolves slowly — add it in a sock in front of a return jet and give it a few days before retesting.`;
+}
+
+/* ---------- render results ---------- */
+function calculate(){
+  const gallons = parseFloat(document.getElementById('gallons').value) || 0;
+  const pct = parseFloat(document.getElementById('chlorinePct').value) || 10;
+  const psiBaseline = parseFloat(document.getElementById('psiBaseline').value) || 10;
+  const psiHigh = parseFloat(document.getElementById('psiHigh').value) || 18;
+  const fc = parseFloat(document.getElementById('fc').value);
+  const tc = parseFloat(document.getElementById('tc').value);
+  const ph = parseFloat(document.getElementById('ph').value);
+  const ta = parseFloat(document.getElementById('ta').value);
+  const ch = parseFloat(document.getElementById('ch').value);
+  const cya = parseFloat(document.getElementById('cya').value);
+  const psi = parseFloat(document.getElementById('psi').value);
+  const temp = parseFloat(document.getElementById('temp').value);
+  const cc = (isFinite(fc) && isFinite(tc)) ? Math.max(0, tc-fc) : NaN;
+
+  const readings = {fc, cc, ph, ta, ch, cya};
+  const panel = document.getElementById('resultsPanel');
+  const out = document.getElementById('results');
+  out.innerHTML = '';
+
+  let minTargetFC = null;
+  if(isFinite(cya) && cya > 0){
+    minTargetFC = Math.round(cya*0.075*10)/10;
+  }
+
+  const cards = [];
+  for(const key of ['fc','cc','ph','ta','ch','cya']){
+    const val = readings[key];
+    if(!isFinite(val)) continue;
+    const t = TARGETS[key];
+    const zone = zoneOf(key, val);
+    let doseHtml = '';
+    const target = (t.low+t.high)/2;
+    if(key==='fc'){
+      let effectiveTarget = target;
+      if(minTargetFC && minTargetFC > t.high){
+        effectiveTarget = minTargetFC;
+      }
+      const d = doseFC(gallons, pct, val, effectiveTarget);
+      if(d) doseHtml = d;
+      else if(zone!=='good') doseHtml = `Free Chlorine is above target — no addition needed. Let it drift down or reduce feed.`;
+    }
+    if(key==='cc' && val > t.high){
+      doseHtml = `Combined Chlorine is elevated (chloramines). Rule of thumb: shock with Free Chlorine equal to about <strong>${fmt(val*10,1)} ppm</strong> above current FC to reach breakpoint, then retest.`;
+    }
+    if(key==='ph'){ const d = dosePH(gallons, val, target); if(d) doseHtml = d; }
+    if(key==='ta'){ const d = doseTA(gallons, val, target); if(d) doseHtml = d; }
+    if(key==='ch'){ const d = doseCH(gallons, val, target); if(d) doseHtml = d; }
+    if(key==='cya'){ const d = doseCYA(gallons, val, target); if(d) doseHtml = d; }
+
+    cards.push({key, val, t, zone, doseHtml});
+  }
+
+  if(cards.length===0 && !isFinite(psi)){
+    out.innerHTML = '<p class="empty">Enter at least one reading above to see recommendations.</p>';
+  } else {
+    for(const c of cards){
+      const pillClass = c.zone;
+      const pillText = c.zone==='good' ? 'In range' : (c.zone==='low' ? 'Low' : 'High');
+      out.innerHTML += `
+        <div class="rcard">
+          <div class="rtop">
+            <span class="rname">${c.t.name}</span>
+            <span class="rval">${fmt(c.val)} ${c.t.unit}</span>
+            <span class="pill ${pillClass}">${pillText}</span>
+          </div>
+          ${gauge(c.key, c.val)}
+          ${c.doseHtml ? `<div class="dose">${c.doseHtml}</div>` : `<div class="dose">Looks good — no change needed.</div>`}
+        </div>`;
+    }
+    if(isFinite(psi)){
+      const zone = psiZone(psi, psiBaseline, psiHigh);
+      const pillText = zone==='good' ? 'Normal' : (zone==='low' ? 'Unusually low' : 'Clean filter');
+      let note = '';
+      if(zone==='high') note = `Pressure is at or above your "time to clean" mark — backwash (sand/DE) or hose off the cartridge, then log a fresh baseline.`;
+      if(zone==='low') note = `Lower than your baseline usually means low flow, not a clean filter — check the pump strainer basket and skimmer for clogs, and confirm the pump is fully primed.`;
+      out.innerHTML += `
+        <div class="rcard">
+          <div class="rtop">
+            <span class="rname">Filter Pressure</span>
+            <span class="rval">${fmt(psi,0)} PSI</span>
+            <span class="pill ${zone}">${pillText}</span>
+          </div>
+          ${psiGauge(psi, psiBaseline, psiHigh)}
+          ${note ? `<div class="dose">${note}</div>` : `<div class="dose">Running normally — nothing to do.</div>`}
+        </div>`;
+    }
+    let orderMsg = "Suggested order if adjusting multiple things: CYA (rarely) → Alkalinity → pH → Calcium Hardness → Chlorine/shock last. Wait a few hours and retest between each.";
+    if(minTargetFC && isFinite(cya)){
+      orderMsg += ` Note: with CYA at ${fmt(cya,0)} ppm, chlorine works best kept above roughly ${minTargetFC} ppm — that's factored into the FC dose above if it's higher than the default target.`;
+    }
+    document.getElementById('orderNote').textContent = orderMsg;
+  }
+
+  panel.style.display = 'block';
+  return {gallons, pct, fc, cc, ph, ta, ch, cya, psi, temp, level: waterLevel, tags: Array.from(activeTags), notes: document.getElementById('notes').value.trim()};
+}
+
+/* ---------- history log ---------- */
+function clearEventInputs(){
+  document.querySelectorAll('#eventChips .chip').forEach(c=>c.classList.remove('active'));
+  activeTags.clear();
+  document.getElementById('notes').value = '';
+}
+
+function logReading(){
+  const r = calculate();
+  const entry = { date: new Date().toISOString(), ...r };
+  history.unshift(entry);
+  saveHistory(history);
+  renderStorageNote();
+  renderHistory();
+  clearEventInputs();
+}
+
+function logEventOnly(){
+  const psi = parseFloat(document.getElementById('psi').value);
+  const temp = parseFloat(document.getElementById('temp').value);
+  const entry = {
+    date: new Date().toISOString(),
+    fc: NaN, cc: NaN, ph: NaN, ta: NaN, ch: NaN, cya: NaN,
+    psi, temp, level: waterLevel, tags: Array.from(activeTags),
+    notes: document.getElementById('notes').value.trim()
+  };
+  if(entry.tags.length===0 && !entry.notes && !isFinite(psi)){
+    alert('Pick at least one event, add a note, or enter a filter pressure before logging.');
+    return;
+  }
+  history.unshift(entry);
+  saveHistory(history);
+  renderStorageNote();
+  renderHistory();
+  clearEventInputs();
+}
+
+function renderHistory(){
+  const wrap = document.getElementById('historyTableWrap');
+  const chartWrap = document.getElementById('chartWrap');
+  if(history.length===0){
+    wrap.innerHTML = '<p class="empty">No readings logged yet. Use "Calculate & log this reading" above to start tracking trends.</p>';
+    chartWrap.style.display = 'none';
+    return;
+  }
+  chartWrap.style.display = history.length>1 ? 'block' : 'none';
+
+  let rows = '';
+  history.forEach((h, i)=>{
+    const d = new Date(h.date);
+    const tagBits = [];
+    if(h.level && h.level!=='Normal') tagBits.push(h.level+' water');
+    (h.tags||[]).forEach(t=>tagBits.push(t));
+    const tagHtml = tagBits.length ? `<div class="tag-list">${tagBits.map(t=>`<span class="tagchip">${t}</span>`).join('')}</div>` : '';
+    const notesHtml = h.notes ? `<div style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:var(--ink-soft);margin-top:3px;">${h.notes}</div>` : '';
+    rows += `<tr>
+      <td>${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
+      <td>${isFinite(h.fc)?fmt(h.fc):'—'}</td>
+      <td>${isFinite(h.cc)?fmt(h.cc):'—'}</td>
+      <td>${isFinite(h.ph)?fmt(h.ph):'—'}</td>
+      <td>${isFinite(h.ta)?fmt(h.ta,0):'—'}</td>
+      <td>${isFinite(h.ch)?fmt(h.ch,0):'—'}</td>
+      <td>${isFinite(h.cya)?fmt(h.cya,0):'—'}</td>
+      <td>${isFinite(h.psi)?fmt(h.psi,0):'—'}</td>
+      <td>${isFinite(h.temp)?fmt(h.temp,0)+'°':'—'}</td>
+      <td style="white-space:normal;min-width:140px;">${tagHtml}${notesHtml}</td>
+      <td class="del" data-i="${i}">remove</td>
+    </tr>`;
+  });
+  wrap.innerHTML = `<table>
+    <thead><tr><th>When</th><th>FC</th><th>CC</th><th>pH</th><th>TA</th><th>CH</th><th>CYA</th><th>PSI</th><th>Temp</th><th>Events</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  wrap.querySelectorAll('.del').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const i = parseInt(el.getAttribute('data-i'));
+      history.splice(i,1);
+      saveHistory(history);
+      renderHistory();
+    });
+  });
+
+  drawChart();
+}
+
+function drawChart(){
+  const svg = document.getElementById('chart');
+  const data = history.slice(0,20).slice().reverse();
+  if(data.length<2){ svg.innerHTML=''; return; }
+  const W=600,H=170,padL=28,padR=10,padT=10,padB=20;
+  const xs = data.map((d,i)=> padL + (i/(data.length-1))*(W-padL-padR));
+  const fcVals = data.map(d=> isFinite(d.fc)? d.fc : null);
+  const phVals = data.map(d=> isFinite(d.ph)? d.ph*10 : null); // scale ph *10 to share axis roughly
+
+  const allVals = [...fcVals, ...phVals].filter(v=>v!==null);
+  const maxV = Math.max(10, ...allVals);
+  const minV = 0;
+  function y(v){ return H-padB - ((v-minV)/(maxV-minV))*(H-padT-padB); }
+
+  function pathFor(vals){
+    let d='';
+    let started=false;
+    vals.forEach((v,i)=>{
+      if(v===null) return;
+      const cmd = started ? 'L' : 'M';
+      d += `${cmd}${xs[i].toFixed(1)},${y(v).toFixed(1)} `;
+      started=true;
+    });
+    return d;
+  }
+
+  let dots = '';
+  fcVals.forEach((v,i)=>{ if(v!==null) dots += `<circle cx="${xs[i].toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="var(--pool)"/>`; });
+  phVals.forEach((v,i)=>{ if(v!==null) dots += `<circle cx="${xs[i].toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="var(--high)"/>`; });
+
+  svg.innerHTML = `
+    <line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="var(--line)" stroke-width="1"/>
+    <path d="${pathFor(fcVals)}" fill="none" stroke="var(--pool)" stroke-width="2"/>
+    <path d="${pathFor(phVals)}" fill="none" stroke="var(--high)" stroke-width="2"/>
+    ${dots}
+  `;
+}
+
+/* ---------- wire up ---------- */
+document.getElementById('calcBtn').addEventListener('click', calculate);
+document.getElementById('logBtn').addEventListener('click', logReading);
+document.getElementById('eventOnlyBtn').addEventListener('click', logEventOnly);
+document.getElementById('todayChip').textContent = new Date().toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'});
+
+renderStorageNote();
+renderHistory();
+</script>
+</body>
+</html>

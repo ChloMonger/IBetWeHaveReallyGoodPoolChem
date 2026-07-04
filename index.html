@@ -1,4 +1,4 @@
-G<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -72,6 +72,13 @@ G<!DOCTYPE html>
   .panel .sub{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
 
   .grid-settings{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .hidden{display:none !important;}
+  .settings-summary{
+    font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink);
+    background:var(--deck);border-radius:8px;padding:12px 14px;margin-bottom:4px;
+    display:flex;flex-wrap:wrap;gap:6px 14px;
+  }
+  .settings-summary strong{color:var(--pool-deep);}
   .field{display:flex;flex-direction:column;gap:6px;}
   .field label{font-size:12.5px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.02em;}
   .field input, .field select{
@@ -230,7 +237,10 @@ G<!DOCTYPE html>
   <section class="panel">
     <h2><span class="num">01</span> Pool &amp; chemical setup</h2>
     <p class="sub">Set this once — it's used for every dose calculation below.</p>
-    <div class="grid-settings">
+
+    <div id="settingsSummary" class="settings-summary"></div>
+
+    <div class="grid-settings hidden" id="settingsForm">
       <div class="field">
         <label for="gallons">Pool volume (gallons)</label>
         <input type="number" id="gallons" value="3800" min="500" step="100">
@@ -241,14 +251,20 @@ G<!DOCTYPE html>
         <span class="hint">"Pool store" liquid chlorine is usually 10–12.5%. Plain household bleach is 6–8%. Check the jug label.</span>
       </div>
       <div class="field">
-        <label for="psiBaseline">Filter PSI — clean/baseline</label>
-        <input type="number" id="psiBaseline" value="5" min="0" step="1">
-        <span class="hint">Reading right after you backwash/rinse a clean filter.</span>
+        <label for="psiBaseline">Filter PSI — low end of ideal</label>
+        <input type="number" id="psiBaseline" value="0" min="0" step="1">
+        <span class="hint">Bottom of your gauge's normal range.</span>
       </div>
       <div class="field">
         <label for="psiHigh">Filter PSI — time to clean</label>
-        <input type="number" id="psiHigh" value="10" min="0" step="1">
+        <input type="number" id="psiHigh" value="5" min="0" step="1">
+        <span class="hint">Above this, backwash/rinse the filter.</span>
       </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn ghost" id="editSettingsBtn">Edit setup</button>
+      <button class="btn hidden" id="saveSettingsBtn">Save</button>
     </div>
   </section>
 
@@ -309,6 +325,10 @@ G<!DOCTYPE html>
     <p class="sub">Dosed for your pool size right now. Add chemicals one at a time in the order below, circulate, and retest before adding the next — pool chemistry interacts, so big simultaneous doses can overshoot.</p>
     <div class="results" id="results"></div>
     <div class="order-note" id="orderNote"></div>
+    <div class="btn-row">
+      <button class="btn ghost" id="logChemBtn">Log what I added</button>
+    </div>
+    <p class="sub" style="margin:8px 0 0;">Logs today's readings plus these dosing amounts as one entry. Anything extra you actually added (algaecide, clarifier, etc.) — put it in the Notes field above before clicking.</p>
   </section>
 
   <!-- History -->
@@ -357,10 +377,12 @@ const firebaseConfig = {
 
 let firebaseReady = false;
 let dbRef = null;
+let settingsRef = null;
 if(firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY" && typeof firebase !== 'undefined'){
   try{
     firebase.initializeApp(firebaseConfig);
     dbRef = firebase.database().ref('poolside_history');
+    settingsRef = firebase.database().ref('poolside_settings');
     firebaseReady = true;
   }catch(e){
     console.error('Firebase init failed, falling back to local-only storage.', e);
@@ -494,6 +516,68 @@ document.getElementById('levelChips').addEventListener('click', (e)=>{
   document.querySelectorAll('#levelChips .chip').forEach(c=>c.classList.remove('active'));
   chip.classList.add('active');
   waterLevel = chip.getAttribute('data-level');
+});
+
+/* ---------- pool & filter settings (set-once, editable, synced) ---------- */
+const defaultSettings = {gallons:3800, chlorinePct:10, psiBaseline:0, psiHigh:5};
+let settings = {...defaultSettings};
+
+function loadSettingsLocal(){
+  try{
+    const raw = localStorage.getItem('poolside_settings');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveSettingsLocal(s){
+  try{ localStorage.setItem('poolside_settings', JSON.stringify(s)); }catch(e){}
+}
+function applySettingsToForm(s){
+  document.getElementById('gallons').value = s.gallons;
+  document.getElementById('chlorinePct').value = s.chlorinePct;
+  document.getElementById('psiBaseline').value = s.psiBaseline;
+  document.getElementById('psiHigh').value = s.psiHigh;
+}
+function renderSettingsSummary(){
+  const el = document.getElementById('settingsSummary');
+  el.innerHTML = `
+    <span>Pool: <strong>${Number(settings.gallons).toLocaleString()} gal</strong></span>
+    <span>Chlorine: <strong>${settings.chlorinePct}%</strong></span>
+    <span>Filter ideal: <strong>${settings.psiBaseline}–${settings.psiHigh} PSI</strong></span>`;
+}
+
+if(firebaseReady){
+  settingsRef.on('value', snap=>{
+    const val = snap.val();
+    settings = val ? {...defaultSettings, ...val} : {...defaultSettings};
+    applySettingsToForm(settings);
+    renderSettingsSummary();
+  });
+} else {
+  const loaded = loadSettingsLocal();
+  settings = loaded ? {...defaultSettings, ...loaded} : {...defaultSettings};
+  applySettingsToForm(settings);
+  renderSettingsSummary();
+}
+
+document.getElementById('editSettingsBtn').addEventListener('click', ()=>{
+  document.getElementById('settingsForm').classList.remove('hidden');
+  document.getElementById('settingsSummary').classList.add('hidden');
+  document.getElementById('editSettingsBtn').classList.add('hidden');
+  document.getElementById('saveSettingsBtn').classList.remove('hidden');
+});
+document.getElementById('saveSettingsBtn').addEventListener('click', ()=>{
+  settings = {
+    gallons: parseFloat(document.getElementById('gallons').value) || defaultSettings.gallons,
+    chlorinePct: parseFloat(document.getElementById('chlorinePct').value) || defaultSettings.chlorinePct,
+    psiBaseline: (()=>{ const v = parseFloat(document.getElementById('psiBaseline').value); return isFinite(v) ? v : defaultSettings.psiBaseline; })(),
+    psiHigh: parseFloat(document.getElementById('psiHigh').value) || defaultSettings.psiHigh
+  };
+  if(firebaseReady){ settingsRef.set(settings); } else { saveSettingsLocal(settings); }
+  renderSettingsSummary();
+  document.getElementById('settingsForm').classList.add('hidden');
+  document.getElementById('settingsSummary').classList.remove('hidden');
+  document.getElementById('editSettingsBtn').classList.remove('hidden');
+  document.getElementById('saveSettingsBtn').classList.add('hidden');
 });
 
 /* ---------- helpers ---------- */
@@ -666,8 +750,37 @@ function calculate(){
     document.getElementById('orderNote').textContent = orderMsg;
   }
 
+  const doseLines = cards
+    .filter(c=>c.doseHtml)
+    .map(c=> `${c.t.name}: ${c.doseHtml.replace(/<[^>]+>/g,'')}`);
+
   panel.style.display = 'block';
+  lastCalcContext = {gallons, pct, fc, cc, ph, ta, ch, cya, psi, temp, doseLines};
   return {gallons, pct, fc, cc, ph, ta, ch, cya, psi, temp, level: waterLevel, tags: Array.from(activeTags), notes: document.getElementById('notes').value.trim()};
+}
+let lastCalcContext = null;
+
+function logChemicals(){
+  if(!lastCalcContext){
+    alert('Hit "Calculate doses" first, then log what you actually added.');
+    return;
+  }
+  const notes = document.getElementById('notes').value.trim();
+  const summary = lastCalcContext.doseLines.length
+    ? lastCalcContext.doseLines.join('  •  ')
+    : 'No dosing was needed based on this reading.';
+  const finalNotes = notes ? `${summary}  •  Also: ${notes}` : summary;
+  const entry = {
+    date: new Date().toISOString(),
+    fc: lastCalcContext.fc, cc: lastCalcContext.cc, ph: lastCalcContext.ph,
+    ta: lastCalcContext.ta, ch: lastCalcContext.ch, cya: lastCalcContext.cya,
+    psi: lastCalcContext.psi, temp: lastCalcContext.temp,
+    level: waterLevel,
+    tags: Array.from(new Set([...activeTags, 'Added chemicals manually'])),
+    notes: finalNotes
+  };
+  addEntry(entry);
+  clearEventInputs();
 }
 
 /* ---------- history log ---------- */
@@ -789,6 +902,7 @@ function drawChart(){
 document.getElementById('calcBtn').addEventListener('click', calculate);
 document.getElementById('logBtn').addEventListener('click', logReading);
 document.getElementById('eventOnlyBtn').addEventListener('click', logEventOnly);
+document.getElementById('logChemBtn').addEventListener('click', logChemicals);
 document.getElementById('todayChip').textContent = new Date().toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'});
 
 renderStorageNote();
